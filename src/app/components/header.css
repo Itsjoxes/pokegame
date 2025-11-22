@@ -1,0 +1,31 @@
+@import url('https://fonts.googleapis.com/css2?family=Archivo+Black&display=swap');
+
+header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    font-family: 'Archivo Black', sans-serif;
+    font-weight: 400;
+    font-style: normal;
+    color: white;
+
+    border: 10px solid rgb(117, 117, 117);
+
+    background-color: rgb(206, 40, 40);
+}
+
+img {
+    width: 200px;
+    height: 200px;
+}
+
+nav a {
+  background-color: yellow;
+  color: rgb(0, 0, 0); /* para que se lea */
+  text-decoration: none; /* saca el subrayado si querís */
+  padding: 10px 20px; /* opcional, pa que se vea piola */
+}
+nav a:hover {
+  background-color: gold; /* cambia un poco al pasar el mouse */
+}
