@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="200" viewBox="0 0 800 200" preserveAspectRatio="xMidYMax slice">
+  <rect width="100%" height="100%" fill="transparent"/>
+  <!-- stylized volcano and lava -->
+  <g>
+    <path d="M120 170 L220 80 L320 170 Z" fill="#4b3226"/>
+    <path d="M200 120 L220 80 L240 120 Z" fill="#a43"/>
+    <rect x="200" y="120" width="20" height="50" fill="#ff6b6b" opacity="0.9"/>
+  </g>
+  <g>
+    <path d="M520 170 L620 60 L720 170 Z" fill="#3e2f25"/>
+    <path d="M600 100 L620 60 L640 100 Z" fill="#ff3b30"/>
+  </g>
+</svg>

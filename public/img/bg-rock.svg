@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="200" viewBox="0 0 800 200" preserveAspectRatio="xMidYMax slice">
+  <rect width="100%" height="100%" fill="transparent"/>
+  <!-- stylized rock silhouettes -->
+  <g fill="#9b8f7a">
+    <path d="M30 170 L90 100 L150 160 Z"/>
+    <path d="M180 170 L260 90 L340 160 Z"/>
+    <path d="M360 170 L430 120 L500 170 Z"/>
+    <path d="M520 170 L600 110 L680 170 Z"/>
+  </g>
+  <g fill="#7f6f59">
+    <path d="M200 160 L240 130 L280 160 Z" opacity="0.8"/>
+    <path d="M460 160 L500 140 L540 160 Z" opacity="0.85"/>
+  </g>
+</svg>

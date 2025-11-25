@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="200" viewBox="0 0 800 200" preserveAspectRatio="xMidYMax slice">
+  <rect width="100%" height="100%" fill="transparent"/>
+  <!-- simple wave shapes -->
+  <g fill="#60a5fa">
+    <path d="M0 150 Q50 120 100 150 T200 150 T300 150 T400 150 T500 150 T600 150 T700 150 T800 150 L800 200 L0 200 Z"/>
+  </g>
+  <g fill="#3b82f6" opacity="0.85">
+    <path d="M0 160 Q50 130 100 160 T200 160 T300 160 T400 160 T500 160 T600 160 T700 160 T800 160 L800 200 L0 200 Z"/>
+  </g>
+</svg>

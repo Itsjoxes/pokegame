@@ -2,24 +2,40 @@
 
 .pokemonList {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 20px;
-  padding: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+  padding: 8px;
 }
 
 .pokemonCard {
   border: 2px solid rgb(117, 117, 117);
-  border-radius: 10px;
-  padding: 10px;
+  border-radius: 8px;
+  padding: 8px;
   text-align: center;
   background-color: #fff;
-  box-shadow: 2px 2px 6px rgba(0, 0, 0, 0.2);
+  box-shadow: 2px 2px 6px rgba(0, 0, 0, 0.12);
 }
 
 .pokemonCard img {
-  width: 120px;
-  height: 120px;
+  width: 80px;
+  height: 80px;
 }
+
+/* HP bar */
+.hpBar {
+  width: 100%;
+  height: 10px;
+  background: #eee;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: inset 0 1px 1px rgba(0,0,0,0.06);
+}
+.hpFill {
+  height: 100%;
+  background: linear-gradient(90deg,#6ee7b7,#10b981);
+  transition: width 240ms ease;
+}
+.hpLabel { font-size: 12px; color:#333; margin-top:6px; }
 
 .pokemonCard h2 {
   font-family: 'Outfit', sans-serif;
@@ -28,4 +44,113 @@
   font-weight: 400px;
   text-transform: uppercase;
 
+}
+
+/* Zone background themes */
+.pokemonsPage {
+  transition: background 420ms ease, background-image 420ms ease;
+  padding-bottom: 40px;
+  background: transparent; /* let body background show through */
+  min-height: 100vh;
+}
+.pokemonsPage.zone-forest {
+  background: linear-gradient(180deg, #e6f8e9 0%, #d0f0d6 50%, #bfe6c6 100%);
+}
+.pokemonsPage.zone-rock {
+  background: linear-gradient(180deg, #f2efe9 0%, #e6dfd0 50%, #d7cdb8 100%);
+}
+.pokemonsPage.zone-water {
+  background: linear-gradient(180deg, #e6f0ff 0%, #d0e8ff 50%, #c0e0ff 100%);
+}
+.pokemonsPage.zone-volcanic {
+  background: linear-gradient(180deg, #fff3e6 0%, #ffd6b3 50%, #ffb380 100%);
+}
+.pokemonsPage.zone-storm {
+  background: linear-gradient(180deg, #f0f7ff 0%, #dbeeff 50%, #c6e5ff 100%);
+}
+.pokemonsPage.zone-tundra {
+  background: linear-gradient(180deg, #f0fbff 0%, #e0f7ff 50%, #d0f3ff 100%);
+}
+.pokemonsPage.zone-spooky {
+  background: linear-gradient(180deg, #f6f2ff 0%, #e8e0ff 50%, #dbd0ff 100%);
+}
+.pokemonsPage.zone-sky {
+  background: linear-gradient(180deg, #eaffff 0%, #d6f7ff 50%, #c2efff 100%);
+}
+.pokemonsPage.zone-mystic {
+  background: linear-gradient(180deg, #fff0ff 0%, #ffe0ff 50%, #ffd0ff 100%);
+}
+.pokemonsPage.zone-industrial {
+  background: linear-gradient(180deg, #f3f4f6 0%, #e6e7ea 50%, #d9dbde 100%);
+}
+.pokemonsPage.zone-mountain {
+  background: linear-gradient(180deg, #fff7e6 0%, #fff0d6 50%, #ffe9c6 100%);
+}
+.pokemonsPage.zone-plain {
+  background: linear-gradient(180deg, #fffef6 0%, #fffdf0 50%, #fffce6 100%);
+}
+.pokemonsPage.zone-default {
+  background: linear-gradient(180deg, #ffffff 0%, #fafafa 100%);
+}
+
+/* Also allow applying theme to the document body for full-page backgrounds */
+body.zone-forest {
+  background-image: url('/img/bg-forest.svg'), linear-gradient(180deg, #e6f8e9 0%, #d0f0d6 50%, #bfe6c6 100%);
+  background-repeat: no-repeat, no-repeat;
+  background-position: bottom left, center;
+  background-size: 80% auto, cover;
+  background-attachment: fixed;
+}
+body.zone-rock {
+  background-image: url('/img/bg-rock.svg'), linear-gradient(180deg, #f2efe9 0%, #e6dfd0 50%, #d7cdb8 100%);
+  background-repeat: no-repeat, no-repeat;
+  background-position: bottom left, center;
+  background-size: 75% auto, cover;
+  background-attachment: fixed;
+}
+body.zone-water {
+  background-image: url('/img/bg-water.svg'), linear-gradient(180deg, #e6f0ff 0%, #d0e8ff 50%, #c0e0ff 100%);
+  background-repeat: no-repeat, no-repeat;
+  background-position: bottom center, center;
+  background-size: 120% auto, cover;
+  background-attachment: fixed;
+}
+body.zone-volcanic {
+  background-image: url('/img/bg-volcanic.svg'), linear-gradient(180deg, #fff3e6 0%, #ffd6b3 50%, #ffb380 100%);
+  background-repeat: no-repeat, no-repeat;
+  background-position: bottom right, center;
+  background-size: 80% auto, cover;
+  background-attachment: fixed;
+}
+body.zone-storm {
+  background: linear-gradient(180deg, #f0f7ff 0%, #dbeeff 50%, #c6e5ff 100%);
+}
+body.zone-tundra {
+  background: linear-gradient(180deg, #f0fbff 0%, #e0f7ff 50%, #d0f3ff 100%);
+}
+body.zone-spooky {
+  background: linear-gradient(180deg, #f6f2ff 0%, #e8e0ff 50%, #dbd0ff 100%);
+}
+body.zone-sky {
+  background: linear-gradient(180deg, #eaffff 0%, #d6f7ff 50%, #c2efff 100%);
+}
+body.zone-mystic {
+  background: linear-gradient(180deg, #fff0ff 0%, #ffe0ff 50%, #ffd0ff 100%);
+}
+body.zone-industrial {
+  background: linear-gradient(180deg, #f3f4f6 0%, #e6e7ea 50%, #d9dbde 100%);
+}
+body.zone-mountain {
+  background: linear-gradient(180deg, #fff7e6 0%, #fff0d6 50%, #ffe9c6 100%);
+}
+body.zone-plain {
+  background: linear-gradient(180deg, #fffef6 0%, #fffdf0 50%, #fffce6 100%);
+}
+body.zone-default {
+  background: linear-gradient(180deg, #ffffff 0%, #fafafa 100%);
+}
+
+/* Make the pokemon cards slightly translucent so backgrounds are visible */
+.pokemonCard {
+  background-color: rgba(255,255,255,0.88);
 }
