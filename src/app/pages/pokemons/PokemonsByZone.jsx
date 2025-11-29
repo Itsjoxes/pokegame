@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import './pokemon.css';
+import { getCookie } from '@/app/utils/cookies';
 
 // Helper: fetch pokemon types by id (returns array of type names)
 async function getPokemonTypes(id) {
@@ -153,11 +154,11 @@ export default function PokemonsByZone() {
         // cleanup not strictly necessary but keep body clean
         if (zoneTheme) document.body.classList.remove(`zone-${zoneTheme}`);
       };
-    } catch (e) {}
+    } catch (e) { }
   }, [zoneTheme]);
   // auth: current user
   const [currentUser, setCurrentUser] = useState(() => {
-    try { return localStorage.getItem('currentUser') || null; } catch (e) { return null; }
+    try { return getCookie('currentUser') || localStorage.getItem('currentUser') || null; } catch (e) { return null; }
   });
 
   // roster: array of captured instances { id: uniqueInstanceId, originalId, currentId, name, image, level, xp }
@@ -208,7 +209,7 @@ export default function PokemonsByZone() {
     loadForUser(currentUser);
     // listen for auth changes
     function onAuth(e) {
-      const name = (e && e.detail) || localStorage.getItem('currentUser') || null;
+      const name = (e && e.detail) || getCookie('currentUser') || localStorage.getItem('currentUser') || null;
       setCurrentUser(name);
       loadForUser(name);
     }
@@ -239,7 +240,7 @@ export default function PokemonsByZone() {
     try {
       const key = currentUser ? `roster:${currentUser}` : 'roster';
       localStorage.setItem(key, JSON.stringify(roster));
-    } catch (e) {}
+    } catch (e) { }
   }, [roster]);
 
   const [captureResult, setCaptureResult] = useState({});
@@ -249,7 +250,7 @@ export default function PokemonsByZone() {
     return Math.max(...roster.map((r) => r.level || 0));
   };
 
-  
+
 
   const zoneRequiredLevel = (zone) => {
     // zone 1 requires 0, zone 2 requires 5, zone 3 requires 10, etc.
@@ -345,7 +346,7 @@ export default function PokemonsByZone() {
         setTimeout(() => {
           forceSpawn();
         }, 400);
-      } catch (e) {}
+      } catch (e) { }
     } else {
       setCaptureResult((s) => ({ ...s, [pokemon.id]: { ok: false, msg: 'Falló la captura' } }));
     }
@@ -359,67 +360,67 @@ export default function PokemonsByZone() {
     }, 2000);
   };
 
-    const attemptCaptureWild = (wildPokemon) => {
-        if (!wildPokemon) return;
-        // respect cooldown per species
-        if (captureCooldowns[wildPokemon.id]) return;
-        const canCapture = true; // wild respects early-zone filtering already
-      const maxLevel = getMaxRosterLevel();
-      const bonus = Math.min(MAX_CAPTURE_BONUS, maxLevel / 100);
-      const base = wildPokemon.isBase ? BASE_CAPTURE_CHANCE : NONBASE_CAPTURE_CHANCE;
-      // increase chance slightly with wild level (higher-level wild slightly harder)
-      const levelBonus = Math.min(0.12, wildPokemon.wildLevel / 100);
-      // if the wild has been weakened in battle, increase capture chance proportionally
-      // use a stronger multiplier so weaker HP significantly raises chance
-      const hpFactor = wildPokemon.battle ? (1 - (wildPokemon.battle.wild.hp / wildPokemon.battle.wild.maxHp)) : 0;
-      const hpBonus = hpFactor * 0.9; // up to +0.9 when the wild is almost fainted
-      const chance = Math.max(0.01, Math.min(0.98, base + bonus + levelBonus + hpBonus));
-      const roll = Math.random();
-      if (roll < chance) {
-        addCapturedWithLevel(wildPokemon.id, wildPokemon.name, wildPokemon.image, wildPokemon.wildLevel || 1);
-        setCaptureResult((s) => ({ ...s, [wildPokemon.id]: { ok: true, msg: `¡Capturado (niv ${wildPokemon.wildLevel})!` } }));
-        // set temporary cooldown for this species
-        setCaptureCooldowns((prev) => ({ ...prev, [wildPokemon.id]: true }));
-        setTimeout(() => {
-          setCaptureCooldowns((prev) => {
-            const copy = { ...prev };
-            delete copy[wildPokemon.id];
-            return copy;
-          });
-        }, COOLDOWN_MS);
-          // remove wild from screen after successful capture, then force spawn a new one
-          setTimeout(() => {
-            setWild(null);
-            try {
-              // force spawn shortly after clearing
-              setTimeout(() => {
-                console.debug('Wild captured, forcing spawn');
-                forceSpawn();
-              }, 300);
-            } catch (e) {}
-          }, 200);
-      } else {
-          setCaptureResult((s) => ({ ...s, [wildPokemon.id]: { ok: false, msg: 'Falló la captura' } }));
-          // chance to flee after a failed capture
-          try {
-            const FLEE_BASE = 0.25;
-            const fleeChance = Math.min(0.6, FLEE_BASE + ((wildPokemon.wildLevel || 1) * 0.02));
-            if (Math.random() < fleeChance) {
-              setCaptureResult((s) => ({ ...s, [wildPokemon.id]: { ok: false, msg: '¡Se escapó!' } }));
-              // remove wild from screen
-              setTimeout(() => setWild(null), 300);
-            }
-          } catch (e) { /* ignore */ }
-      }
-      // clear message shortly
+  const attemptCaptureWild = (wildPokemon) => {
+    if (!wildPokemon) return;
+    // respect cooldown per species
+    if (captureCooldowns[wildPokemon.id]) return;
+    const canCapture = true; // wild respects early-zone filtering already
+    const maxLevel = getMaxRosterLevel();
+    const bonus = Math.min(MAX_CAPTURE_BONUS, maxLevel / 100);
+    const base = wildPokemon.isBase ? BASE_CAPTURE_CHANCE : NONBASE_CAPTURE_CHANCE;
+    // increase chance slightly with wild level (higher-level wild slightly harder)
+    const levelBonus = Math.min(0.12, wildPokemon.wildLevel / 100);
+    // if the wild has been weakened in battle, increase capture chance proportionally
+    // use a stronger multiplier so weaker HP significantly raises chance
+    const hpFactor = wildPokemon.battle ? (1 - (wildPokemon.battle.wild.hp / wildPokemon.battle.wild.maxHp)) : 0;
+    const hpBonus = hpFactor * 0.9; // up to +0.9 when the wild is almost fainted
+    const chance = Math.max(0.01, Math.min(0.98, base + bonus + levelBonus + hpBonus));
+    const roll = Math.random();
+    if (roll < chance) {
+      addCapturedWithLevel(wildPokemon.id, wildPokemon.name, wildPokemon.image, wildPokemon.wildLevel || 1);
+      setCaptureResult((s) => ({ ...s, [wildPokemon.id]: { ok: true, msg: `¡Capturado (niv ${wildPokemon.wildLevel})!` } }));
+      // set temporary cooldown for this species
+      setCaptureCooldowns((prev) => ({ ...prev, [wildPokemon.id]: true }));
       setTimeout(() => {
-        setCaptureResult((s) => {
-          const copy = { ...s };
+        setCaptureCooldowns((prev) => {
+          const copy = { ...prev };
           delete copy[wildPokemon.id];
           return copy;
         });
-      }, 2000);
-    };
+      }, COOLDOWN_MS);
+      // remove wild from screen after successful capture, then force spawn a new one
+      setTimeout(() => {
+        setWild(null);
+        try {
+          // force spawn shortly after clearing
+          setTimeout(() => {
+            console.debug('Wild captured, forcing spawn');
+            forceSpawn();
+          }, 300);
+        } catch (e) { }
+      }, 200);
+    } else {
+      setCaptureResult((s) => ({ ...s, [wildPokemon.id]: { ok: false, msg: 'Falló la captura' } }));
+      // chance to flee after a failed capture
+      try {
+        const FLEE_BASE = 0.25;
+        const fleeChance = Math.min(0.6, FLEE_BASE + ((wildPokemon.wildLevel || 1) * 0.02));
+        if (Math.random() < fleeChance) {
+          setCaptureResult((s) => ({ ...s, [wildPokemon.id]: { ok: false, msg: '¡Se escapó!' } }));
+          // remove wild from screen
+          setTimeout(() => setWild(null), 300);
+        }
+      } catch (e) { /* ignore */ }
+    }
+    // clear message shortly
+    setTimeout(() => {
+      setCaptureResult((s) => {
+        const copy = { ...s };
+        delete copy[wildPokemon.id];
+        return copy;
+      });
+    }, 2000);
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -466,7 +467,7 @@ export default function PokemonsByZone() {
     setSelectedZone(zone);
     // set an immediate fallback theme based on zone id so the background updates instantly
     try {
-      const DEFAULT_ZONE_THEMES = ['forest','rock','water','volcanic','storm','tundra','spooky','sky','mystic','industrial','mountain','plain'];
+      const DEFAULT_ZONE_THEMES = ['forest', 'rock', 'water', 'volcanic', 'storm', 'tundra', 'spooky', 'sky', 'mystic', 'industrial', 'mountain', 'plain'];
       const fallback = DEFAULT_ZONE_THEMES[(zone.id - 1) % DEFAULT_ZONE_THEMES.length] || 'default';
       setZoneTheme(fallback);
     } catch (e) {
@@ -518,7 +519,7 @@ export default function PokemonsByZone() {
           if (['ice'].includes(t)) return 'tundra';
           if (['ghost', 'dark'].includes(t)) return 'spooky';
           if (['flying'].includes(t)) return 'sky';
-          if (['fairy','psychic'].includes(t)) return 'mystic';
+          if (['fairy', 'psychic'].includes(t)) return 'mystic';
           if (['steel'].includes(t)) return 'industrial';
           if (['dragon'].includes(t)) return 'mountain';
           if (['normal'].includes(t)) return 'plain';
@@ -589,7 +590,7 @@ export default function PokemonsByZone() {
           const [types, baseStats] = await Promise.all([getPokemonTypes(pick.id), getPokemonBaseStats(pick.id)]);
           const instStats = computeInstanceStats(baseStats || {}, lvl);
           setWild((cur) => (cur && cur.id === pick.id ? { ...cur, types, baseStats, stats: instStats } : cur));
-        } catch (e) {}
+        } catch (e) { }
       })();
       return w;
     });
@@ -620,7 +621,7 @@ export default function PokemonsByZone() {
         const [types, baseStats] = await Promise.all([getPokemonTypes(pick.id), getPokemonBaseStats(pick.id)]);
         const instStats = computeInstanceStats(baseStats || {}, lvl);
         setWild((cur) => (cur && cur.id === pick.id ? { ...cur, types, baseStats, stats: instStats } : cur));
-      } catch (e) {}
+      } catch (e) { }
     })();
   };
 
@@ -703,7 +704,7 @@ export default function PokemonsByZone() {
         {selectedZone ? (
           <div>
             <h3>{selectedZone.name}</h3>
-              {loadingZone ? (
+            {loadingZone ? (
               <p>Cargando pokemons de la zona...</p>
             ) : (
               <div style={{ display: 'flex', gap: 16 }}>
@@ -720,7 +721,7 @@ export default function PokemonsByZone() {
                           <small style={{ color: '#888' }}>Un Pokémon salvaje aparece — empieza la batalla si atacas.</small>
                         </div>
                       )}
-                        <div className='buttonCapturar' style={{ marginTop: 8 }}>
+                      <div className='buttonCapturar' style={{ marginTop: 8 }}>
                         <button onClick={() => attemptCaptureWild(wild)} disabled={!!captureCooldowns[wild.id]}>Capturar</button>
                         <button style={{ marginLeft: 8 }} onClick={() => {
                           // start battle if not started: initialize with no selected battler
@@ -789,7 +790,7 @@ export default function PokemonsByZone() {
                                           if (idx !== -1) copy[idx] = { ...copy[idx], types };
                                           return copy;
                                         });
-                                      } catch (e) {}
+                                      } catch (e) { }
                                     }
                                   }
                                 }}
@@ -839,9 +840,9 @@ export default function PokemonsByZone() {
                                 }
                                 // check end
                                 let spawnedAfterWin = false;
-                                  if (b.wild.hp <= 0) {
-                                    b.ended = true;
-                                    b.log = [...b.log, '¡Has debilitado al salvaje! Puedes intentar capturarlo con mayor probabilidad.'];
+                                if (b.wild.hp <= 0) {
+                                  b.ended = true;
+                                  b.log = [...b.log, '¡Has debilitado al salvaje! Puedes intentar capturarlo con mayor probabilidad.'];
                                   // award battle XP: majority to the battling pokemon, small share to others
                                   try {
                                     const xpTotal = Math.max(10, w.wildLevel * 15);
@@ -894,17 +895,17 @@ export default function PokemonsByZone() {
                                         return copy;
                                       });
                                     }
-                                  } catch (e) {}
-                                    // check if there is any other available pokemon to continue
-                                    try {
-                                      const othersAvailable = (roster || []).some((c) => c.id !== b.player.id && !(c.faintedUntil && c.faintedUntil > Date.now()));
-                                      if (!othersAvailable) {
-                                        // no available pokemon -> end battle
-                                        b.ended = true;
-                                        b.log = [...b.log, 'No te quedan Pokémon disponibles. La batalla terminó.'];
-                                      }
-                                    } catch (e) {}
-                                  }
+                                  } catch (e) { }
+                                  // check if there is any other available pokemon to continue
+                                  try {
+                                    const othersAvailable = (roster || []).some((c) => c.id !== b.player.id && !(c.faintedUntil && c.faintedUntil > Date.now()));
+                                    if (!othersAvailable) {
+                                      // no available pokemon -> end battle
+                                      b.ended = true;
+                                      b.log = [...b.log, 'No te quedan Pokémon disponibles. La batalla terminó.'];
+                                    }
+                                  } catch (e) { }
+                                }
                                 const newW = { ...w, battle: b };
                                 // schedule spawn of next wild if we won
                                 if (spawnedAfterWin) {
@@ -953,7 +954,7 @@ export default function PokemonsByZone() {
                             <h2>{pokemon.name}</h2>
                             <p>{pokemon.isBase ? 'Primera etapa' : 'Evolución posterior'}</p>
                             <p>En tu equipo: {count}</p>
-                            
+
                           </div>
                         );
                       })}
