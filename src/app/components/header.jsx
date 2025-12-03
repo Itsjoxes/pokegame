@@ -2,6 +2,8 @@
 
 import React, { useEffect, useState } from 'react';
 import './header.css';
+import { getCookie, removeCookie } from '../utils/cookies';
+import { isAdminAccount } from '../utils/adminAccess';
 
 export default function Header() {
     // 1. Inicializa el estado con un valor que SÍ existe en ambos entornos (SSR y Cliente).
@@ -13,7 +15,8 @@ export default function Header() {
     useEffect(() => {
         // Lógica de inicialización (Solo se ejecuta en el cliente)
         try {
-            const initialUser = localStorage.getItem('currentUser') || null;
+            // Intentamos leer de cookie primero, fallback a localStorage
+            const initialUser = getCookie('currentUser') || localStorage.getItem('currentUser') || null;
             setUser(initialUser);
         } catch (e) {
             setUser(null);
@@ -21,7 +24,7 @@ export default function Header() {
 
         // Lógica de suscripción a eventos (Correcta, ya estaba bien)
         function onAuth(e) {
-            const name = (e && e.detail) || localStorage.getItem('currentUser') || null;
+            const name = (e && e.detail) || getCookie('currentUser') || localStorage.getItem('currentUser') || null;
             setUser(name);
         }
         window.addEventListener('authChanged', onAuth);
@@ -39,11 +42,14 @@ export default function Header() {
 
     const doLogout = () => {
         try {
+            removeCookie('currentUser');
+            removeCookie('token');
             localStorage.removeItem('currentUser');
-        } catch (e) {}
+            localStorage.removeItem('token'); // Elimina el token de sesión
+        } catch (e) { }
         window.dispatchEvent(new CustomEvent('authChanged', { detail: null }));
         setUser(null);
-        window.location.href = '/';
+        window.location.href = '/pages/login'; // Redirige al login
     };
 
     // 3. Renderizado Condicional:
@@ -53,11 +59,11 @@ export default function Header() {
         // Devuelve el esqueleto estático del header
         return (
             <header>
-                <img src="/img/logo.png"/>
+                <img src="/img/logo.png" />
                 <nav>
                     <a href="/pages/inicio"> Inicio </a>
                     <a href="/pages/pokemons"> Pokémon's </a>
-                    <a href="/pages/cuenta"> Registrarse </a>
+                    <a href="/pages/cuenta"> Cuenta </a>
                     {/* Renderiza un placeholder invisible o null en la posición dinámica */}
                 </nav>
             </header>
@@ -67,11 +73,12 @@ export default function Header() {
     // 4. Si 'user' es 'null' (No logueado) o un string (Logueado), renderizamos el contenido final.
     return (
         <header>
-            <img src="/img/logo.png"/>
+            <img src="/img/logo.png" />
             <nav>
                 <a href="/pages/inicio"> Inicio </a>
                 <a href="/pages/pokemons"> Pokémon's </a>
-                <a href="/pages/cuenta"> Registrarse </a>
+                <a href="/pages/cuenta"> Cuenta </a>
+                {user && isAdminAccount(user) && <a href="/pages/admin" style={{ color: '#ff9800', fontWeight: 600 }}> ⚙️ Admin </a>}
                 {!user ? (
                     <a href="/pages/login"> Iniciar sesión </a>
                 ) : (

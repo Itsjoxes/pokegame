@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import './pokemon.css';
+import { getCookie } from '@/app/utils/cookies';
 
 // Helper: fetch pokemon types by id (returns array of type names)
 async function getPokemonTypes(id) {
@@ -153,11 +154,11 @@ export default function PokemonsByZone() {
         // cleanup not strictly necessary but keep body clean
         if (zoneTheme) document.body.classList.remove(`zone-${zoneTheme}`);
       };
-    } catch (e) {}
+    } catch (e) { }
   }, [zoneTheme]);
   // auth: current user
   const [currentUser, setCurrentUser] = useState(() => {
-    try { return localStorage.getItem('currentUser') || null; } catch (e) { return null; }
+    try { return getCookie('currentUser') || localStorage.getItem('currentUser') || null; } catch (e) { return null; }
   });
 
   // roster: array of captured instances { id: uniqueInstanceId, originalId, currentId, name, image, level, xp }
@@ -187,6 +188,7 @@ export default function PokemonsByZone() {
                   image: v.image || '',
                   level: v.level || 1,
                   xp: v.xp || 0,
+                  inTeam: v.inTeam !== false, // Default to true for legacy data
                 };
               });
               setRoster(migrated);
@@ -199,8 +201,16 @@ export default function PokemonsByZone() {
         const key = `roster:${user}`;
         const raw = localStorage.getItem(key) || '[]';
         const parsed = JSON.parse(raw || '[]');
-        if (Array.isArray(parsed)) setRoster(parsed);
-        else setRoster([]);
+        if (Array.isArray(parsed)) {
+          // Ensure all pokemon have inTeam property
+          const withInTeam = parsed.map((p) => ({
+            ...p,
+            inTeam: p.inTeam !== false, // Default to true if not specified
+          }));
+          setRoster(withInTeam);
+        } else {
+          setRoster([]);
+        }
       } catch (e) {
         setRoster([]);
       }
@@ -208,7 +218,7 @@ export default function PokemonsByZone() {
     loadForUser(currentUser);
     // listen for auth changes
     function onAuth(e) {
-      const name = (e && e.detail) || localStorage.getItem('currentUser') || null;
+      const name = (e && e.detail) || getCookie('currentUser') || localStorage.getItem('currentUser') || null;
       setCurrentUser(name);
       loadForUser(name);
     }
@@ -239,17 +249,18 @@ export default function PokemonsByZone() {
     try {
       const key = currentUser ? `roster:${currentUser}` : 'roster';
       localStorage.setItem(key, JSON.stringify(roster));
-    } catch (e) {}
+    } catch (e) { }
   }, [roster]);
 
   const [captureResult, setCaptureResult] = useState({});
 
   const getMaxRosterLevel = () => {
-    if (!roster || roster.length === 0) return 0;
-    return Math.max(...roster.map((r) => r.level || 0));
+    const teamMembers = roster.filter((r) => r.inTeam);
+    if (!teamMembers || teamMembers.length === 0) return 0;
+    return Math.max(...teamMembers.map((r) => r.level || 0));
   };
 
-  
+
 
   const zoneRequiredLevel = (zone) => {
     // zone 1 requires 0, zone 2 requires 5, zone 3 requires 10, etc.
@@ -284,6 +295,7 @@ export default function PokemonsByZone() {
     const instanceId = `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
     setRoster((prev) => {
       const copy = [...prev];
+      const teamCount = copy.filter((p) => p.inTeam).length;
       const entry = {
         id: instanceId,
         originalId: id,
@@ -292,10 +304,12 @@ export default function PokemonsByZone() {
         image,
         level: level,
         xp: 0,
+        inTeam: teamCount < 6, // Auto-add to team if there's space
       };
       copy.push(entry);
-      // when capturing a pokemon, award XP to all captured (including the new one)
-      copy.forEach((c) => {
+      // when capturing a pokemon, award XP only to team members
+      const teamMembers = copy.filter((c) => c.inTeam);
+      teamMembers.forEach((c) => {
         c.xp = (c.xp || 0) + XP_PER_CAPTURE;
         while (c.xp >= levelXp(c.level)) {
           c.xp -= levelXp(c.level);
@@ -327,6 +341,30 @@ export default function PokemonsByZone() {
     setRoster((prev) => prev.filter((p) => p.id !== id));
   };
 
+  const toggleTeam = (id) => {
+    setRoster((prev) => {
+      if (!prev) return prev;
+      const copy = [...prev];
+      const idx = copy.findIndex((p) => p.id === id);
+      if (idx === -1) return prev;
+      
+      const isInTeam = copy[idx].inTeam;
+      if (!isInTeam) {
+        // Try to add to team
+        const teamCount = copy.filter((p) => p.inTeam).length;
+        if (teamCount >= 6) {
+          alert('El equipo está lleno (máximo 6 Pokémon)');
+          return prev;
+        }
+        copy[idx] = { ...copy[idx], inTeam: true };
+      } else {
+        // Remove from team
+        copy[idx] = { ...copy[idx], inTeam: false };
+      }
+      return copy;
+    });
+  };
+
   const attemptCapture = async (pokemon, canCapture) => {
     if (!canCapture) return;
     // compute chance
@@ -345,7 +383,7 @@ export default function PokemonsByZone() {
         setTimeout(() => {
           forceSpawn();
         }, 400);
-      } catch (e) {}
+      } catch (e) { }
     } else {
       setCaptureResult((s) => ({ ...s, [pokemon.id]: { ok: false, msg: 'Falló la captura' } }));
     }
@@ -359,67 +397,70 @@ export default function PokemonsByZone() {
     }, 2000);
   };
 
-    const attemptCaptureWild = (wildPokemon) => {
-        if (!wildPokemon) return;
-        // respect cooldown per species
-        if (captureCooldowns[wildPokemon.id]) return;
-        const canCapture = true; // wild respects early-zone filtering already
-      const maxLevel = getMaxRosterLevel();
-      const bonus = Math.min(MAX_CAPTURE_BONUS, maxLevel / 100);
-      const base = wildPokemon.isBase ? BASE_CAPTURE_CHANCE : NONBASE_CAPTURE_CHANCE;
-      // increase chance slightly with wild level (higher-level wild slightly harder)
-      const levelBonus = Math.min(0.12, wildPokemon.wildLevel / 100);
-      // if the wild has been weakened in battle, increase capture chance proportionally
-      // use a stronger multiplier so weaker HP significantly raises chance
-      const hpFactor = wildPokemon.battle ? (1 - (wildPokemon.battle.wild.hp / wildPokemon.battle.wild.maxHp)) : 0;
-      const hpBonus = hpFactor * 0.9; // up to +0.9 when the wild is almost fainted
-      const chance = Math.max(0.01, Math.min(0.98, base + bonus + levelBonus + hpBonus));
-      const roll = Math.random();
-      if (roll < chance) {
-        addCapturedWithLevel(wildPokemon.id, wildPokemon.name, wildPokemon.image, wildPokemon.wildLevel || 1);
-        setCaptureResult((s) => ({ ...s, [wildPokemon.id]: { ok: true, msg: `¡Capturado (niv ${wildPokemon.wildLevel})!` } }));
-        // set temporary cooldown for this species
-        setCaptureCooldowns((prev) => ({ ...prev, [wildPokemon.id]: true }));
-        setTimeout(() => {
-          setCaptureCooldowns((prev) => {
-            const copy = { ...prev };
-            delete copy[wildPokemon.id];
-            return copy;
-          });
-        }, COOLDOWN_MS);
-          // remove wild from screen after successful capture, then force spawn a new one
-          setTimeout(() => {
-            setWild(null);
-            try {
-              // force spawn shortly after clearing
-              setTimeout(() => {
-                console.debug('Wild captured, forcing spawn');
-                forceSpawn();
-              }, 300);
-            } catch (e) {}
-          }, 200);
-      } else {
-          setCaptureResult((s) => ({ ...s, [wildPokemon.id]: { ok: false, msg: 'Falló la captura' } }));
-          // chance to flee after a failed capture
-          try {
-            const FLEE_BASE = 0.25;
-            const fleeChance = Math.min(0.6, FLEE_BASE + ((wildPokemon.wildLevel || 1) * 0.02));
-            if (Math.random() < fleeChance) {
-              setCaptureResult((s) => ({ ...s, [wildPokemon.id]: { ok: false, msg: '¡Se escapó!' } }));
-              // remove wild from screen
-              setTimeout(() => setWild(null), 300);
-            }
-          } catch (e) { /* ignore */ }
-      }
-      // clear message shortly
+  const attemptCaptureWild = (wildPokemon) => {
+    if (!wildPokemon) return;
+    // respect cooldown per species
+    if (captureCooldowns[wildPokemon.id]) return;
+    const canCapture = true; // wild respects early-zone filtering already
+    const maxLevel = getMaxRosterLevel();
+    const bonus = Math.min(MAX_CAPTURE_BONUS, maxLevel / 100);
+    const base = wildPokemon.isBase ? BASE_CAPTURE_CHANCE : NONBASE_CAPTURE_CHANCE;
+    // increase chance slightly with wild level (higher-level wild slightly harder)
+    const levelBonus = Math.min(0.12, wildPokemon.wildLevel / 100);
+    // if the wild has been weakened in battle, increase capture chance proportionally
+    // use a stronger multiplier so weaker HP significantly raises chance
+    const hpFactor = wildPokemon.battle ? (1 - (wildPokemon.battle.wild.hp / wildPokemon.battle.wild.maxHp)) : 0;
+    const hpBonus = hpFactor * 0.9; // up to +0.9 when the wild is almost fainted
+    const chance = Math.max(0.01, Math.min(0.98, base + bonus + levelBonus + hpBonus));
+    const roll = Math.random();
+    if (roll < chance) {
+      addCapturedWithLevel(wildPokemon.id, wildPokemon.name, wildPokemon.image, wildPokemon.wildLevel || 1);
+      setCaptureResult((s) => ({ ...s, [wildPokemon.id]: { ok: true, msg: `¡Capturado (niv ${wildPokemon.wildLevel})!` } }));
+      // set temporary cooldown for this species
+      setCaptureCooldowns((prev) => ({ ...prev, [wildPokemon.id]: true }));
       setTimeout(() => {
-        setCaptureResult((s) => {
-          const copy = { ...s };
+        setCaptureCooldowns((prev) => {
+          const copy = { ...prev };
           delete copy[wildPokemon.id];
           return copy;
         });
-      }, 2000);
-    };
+      }, COOLDOWN_MS);
+      // remove wild from screen after successful capture, then force spawn a new one
+      setTimeout(() => {
+        setWild(null);
+        try {
+          // force spawn shortly after clearing
+          setTimeout(() => {
+            console.debug('Wild captured, forcing spawn');
+            forceSpawn();
+          }, 300);
+        } catch (e) { }
+      }, 200);
+    } else {
+      setCaptureResult((s) => ({ ...s, [wildPokemon.id]: { ok: false, msg: 'Falló la captura' } }));
+      // chance to flee after a failed capture
+      try {
+        const FLEE_BASE = 0.25;
+        const fleeChance = Math.min(0.6, FLEE_BASE + ((wildPokemon.wildLevel || 1) * 0.02));
+        if (Math.random() < fleeChance) {
+          setCaptureResult((s) => ({ ...s, [wildPokemon.id]: { ok: false, msg: '¡Se escapó!' } }));
+          // remove wild from screen and spawn a new one
+          setTimeout(() => {
+            setWild(null);
+            setTimeout(() => forceSpawn(), 600);
+          }, 300);
+        }
+      } catch (e) { /* ignore */ }
+    }
+    // clear message shortly
+    setTimeout(() => {
+      setCaptureResult((s) => {
+        const copy = { ...s };
+        delete copy[wildPokemon.id];
+        return copy;
+      });
+    }, 2000);
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -466,7 +507,7 @@ export default function PokemonsByZone() {
     setSelectedZone(zone);
     // set an immediate fallback theme based on zone id so the background updates instantly
     try {
-      const DEFAULT_ZONE_THEMES = ['forest','rock','water','volcanic','storm','tundra','spooky','sky','mystic','industrial','mountain','plain'];
+      const DEFAULT_ZONE_THEMES = ['forest', 'rock', 'water', 'volcanic', 'storm', 'tundra', 'spooky', 'sky', 'mystic', 'industrial', 'mountain', 'plain'];
       const fallback = DEFAULT_ZONE_THEMES[(zone.id - 1) % DEFAULT_ZONE_THEMES.length] || 'default';
       setZoneTheme(fallback);
     } catch (e) {
@@ -518,7 +559,7 @@ export default function PokemonsByZone() {
           if (['ice'].includes(t)) return 'tundra';
           if (['ghost', 'dark'].includes(t)) return 'spooky';
           if (['flying'].includes(t)) return 'sky';
-          if (['fairy','psychic'].includes(t)) return 'mystic';
+          if (['fairy', 'psychic'].includes(t)) return 'mystic';
           if (['steel'].includes(t)) return 'industrial';
           if (['dragon'].includes(t)) return 'mountain';
           if (['normal'].includes(t)) return 'plain';
@@ -545,6 +586,13 @@ export default function PokemonsByZone() {
   // roster sorting
   const [sortKey, setSortKey] = useState('capturedAt');
   const [sortOrder, setSortOrder] = useState('desc');
+  // drag source id for team reordering
+  const [dragSourceId, setDragSourceId] = useState(null);
+  // inventory filters / sorting
+  const [invFilterText, setInvFilterText] = useState('');
+  const [invFilterType, setInvFilterType] = useState('');
+  const [invSortKey, setInvSortKey] = useState('capturedAt');
+  const [invSortOrder, setInvSortOrder] = useState('desc');
   // sorted roster view
   const sortedRoster = (() => {
     const copy = [...roster];
@@ -561,6 +609,80 @@ export default function PokemonsByZone() {
     }
     return copy;
   })();
+
+  // inventory derived lists
+  const inventoryTypes = (() => {
+    const set = new Set();
+    roster.forEach((r) => {
+      (r.types || []).forEach((t) => set.add(t));
+    });
+    return Array.from(set).sort();
+  })();
+
+  const sortedInventory = (() => {
+    const copy = roster.filter((r) => !r.inTeam);
+    // apply text/type filters
+    const text = (invFilterText || '').trim().toLowerCase();
+    const type = (invFilterType || '').trim().toLowerCase();
+    let filtered = copy.filter((p) => {
+      if (text && !p.name.toLowerCase().includes(text)) return false;
+      if (type) {
+        const types = (p.types || []).map((t) => t.toLowerCase());
+        if (!types.includes(type)) return false;
+      }
+      return true;
+    });
+    const order = invSortOrder === 'desc' ? -1 : 1;
+    if (invSortKey === 'level') {
+      filtered.sort((a, b) => (b.level - a.level) * order);
+    } else if (invSortKey === 'name') {
+      filtered.sort((a, b) => a.name.localeCompare(b.name) * order);
+    } else if (invSortKey === 'pokedex') {
+      filtered.sort((a, b) => (a.originalId - b.originalId) * order);
+    } else {
+      filtered.sort((a, b) => (a.id < b.id ? 1 : -1) * order);
+    }
+    return filtered;
+  })();
+
+  // Helpers for drag-and-drop reordering of team
+  const handleTeamDragStart = (e, id) => {
+    try {
+      setDragSourceId(id);
+      e.dataTransfer.effectAllowed = 'move';
+      // For some browsers, set a text payload
+      e.dataTransfer.setData('text/plain', id);
+    } catch (err) { }
+  };
+
+  const handleTeamDragOver = (e) => {
+    e.preventDefault();
+    try { e.dataTransfer.dropEffect = 'move'; } catch (err) { }
+  };
+
+  const handleTeamDrop = (e, targetId) => {
+    e.preventDefault();
+    const srcId = dragSourceId || e.dataTransfer.getData('text/plain');
+    if (!srcId) return;
+    if (srcId === targetId) {
+      setDragSourceId(null);
+      return;
+    }
+    setRoster((prev) => {
+      const copy = [...(prev || [])];
+      const fromIdx = copy.findIndex((p) => p.id === srcId);
+      const toIdx = copy.findIndex((p) => p.id === targetId);
+      if (fromIdx === -1 || toIdx === -1) return prev;
+      const [item] = copy.splice(fromIdx, 1);
+      copy.splice(toIdx, 0, item);
+      return copy;
+    });
+    setDragSourceId(null);
+  };
+
+  const handleTeamDragEnd = () => {
+    setDragSourceId(null);
+  };
   // spawn helper: picks a random pokemon from current zone (avoids repeating the same wild when possible)
   const spawnWild = () => {
     if (!selectedZone || !zonePokemons.length) return;
@@ -589,7 +711,7 @@ export default function PokemonsByZone() {
           const [types, baseStats] = await Promise.all([getPokemonTypes(pick.id), getPokemonBaseStats(pick.id)]);
           const instStats = computeInstanceStats(baseStats || {}, lvl);
           setWild((cur) => (cur && cur.id === pick.id ? { ...cur, types, baseStats, stats: instStats } : cur));
-        } catch (e) {}
+        } catch (e) { }
       })();
       return w;
     });
@@ -620,7 +742,7 @@ export default function PokemonsByZone() {
         const [types, baseStats] = await Promise.all([getPokemonTypes(pick.id), getPokemonBaseStats(pick.id)]);
         const instStats = computeInstanceStats(baseStats || {}, lvl);
         setWild((cur) => (cur && cur.id === pick.id ? { ...cur, types, baseStats, stats: instStats } : cur));
-      } catch (e) {}
+      } catch (e) { }
     })();
   };
 
@@ -679,6 +801,143 @@ export default function PokemonsByZone() {
     }
   };
 
+  // Auto-battle interval
+  useEffect(() => {
+    if (!wild || !wild.battle || wild.battle.ended) return;
+    
+    const interval = setInterval(() => {
+      setWild((w) => {
+        if (!w || !w.battle || w.battle.ended) return w;
+        const b = { ...w.battle };
+        
+        // determine speeds and order using stats when available
+        const wildStats = (w && w.stats) || { hp: Math.max(8, (w && w.wildLevel) * 8 + 10), attack: 6, defense: 6, speed: 5 };
+        const playerEntry = roster.find((r) => r.id === b.player.id) || {};
+        const playerStats = playerEntry.stats || { hp: b.player.maxHp || 10, attack: Math.max(5, (playerEntry.level || 1) * 2), defense: 6, speed: 5 };
+        const wildTypes = (w && w.types) || [];
+        const playerTypes = playerEntry.types || [];
+        
+        // decide who attacks first by speed
+        const wildSpeed = wildStats.speed || 1;
+        const playerSpeed = playerStats.speed || 1;
+        const playerFirst = playerSpeed >= wildSpeed;
+        
+        function doWildAttack() {
+          // Fórmula mejorada donde el nivel es más importante
+          // ((2 * BaseAtaque * Nivel / 100 + 5) / (BaseDefensa + 5)) * Multiplicador de tipo
+          const wildAttackStat = (2 * (wildStats.attack || 6) * (w.wildLevel || 1) / 100 + 5);
+          const playerDefenseStat = (playerStats.defense || 6) + 5;
+          const dmg = Math.max(1, Math.floor((wildAttackStat / playerDefenseStat) * typeMultiplier(wildTypes, playerTypes)));
+          b.player.hp = Math.max(0, b.player.hp - dmg);
+          b.log = [...b.log, `Salvaje causó ${dmg} de daño.`];
+        }
+        
+        function doPlayerAttack() {
+          // Fórmula mejorada donde el nivel es más importante
+          // ((2 * BaseAtaque * Nivel / 100 + 5) / (BaseDefensa + 5)) * Multiplicador de tipo
+          const playerAttackStat = (2 * (playerStats.attack || 6) * (playerEntry.level || 1) / 100 + 5);
+          const wildDefenseStat = (wildStats.defense || 6) + 5;
+          const dmg = Math.max(1, Math.floor((playerAttackStat / wildDefenseStat) * typeMultiplier(playerTypes, wildTypes)));
+          b.wild.hp = Math.max(0, b.wild.hp - dmg);
+          b.log = [...b.log, `Tu Pokémon causó ${dmg} de daño.`];
+        }
+        
+        if (playerFirst) {
+          if (b.player.hp > 0 && b.player.id) doPlayerAttack();
+          if (b.wild.hp > 0) doWildAttack();
+        } else {
+          doWildAttack();
+          if (b.player.hp > 0 && b.player.id) doPlayerAttack();
+        }
+        
+        // check end
+        let spawnedAfterWin = false;
+        if (b.wild.hp <= 0) {
+          b.ended = true;
+          b.log = [...b.log, '¡Has debilitado al salvaje! Puedes intentar capturarlo con mayor probabilidad.'];
+          // award battle XP: only to team members
+          try {
+            const xpTotal = Math.max(10, w.wildLevel * 15);
+            const activeId = b.player.id;
+            const activeXP = Math.ceil(xpTotal * 0.7);
+            const othersXP = xpTotal - activeXP;
+            setRoster((prev) => {
+              if (!prev || prev.length === 0) return prev;
+              const copy = prev.map((c) => ({ ...c }));
+              const teamMembers = copy.filter((c) => c.inTeam);
+              const othersCount = teamMembers.filter((c) => c.id !== activeId).length;
+              
+              for (let i = 0; i < copy.length; i++) {
+                if (!copy[i].inTeam) continue; // Only team members gain XP
+                if (copy[i].id === activeId) {
+                  copy[i].xp = (copy[i].xp || 0) + activeXP;
+                  while (copy[i].xp >= levelXp(copy[i].level)) {
+                    copy[i].xp -= levelXp(copy[i].level);
+                    copy[i].level += 1;
+                  }
+                } else if (othersCount > 0) {
+                  const share = Math.floor(othersXP / othersCount);
+                  copy[i].xp = (copy[i].xp || 0) + share;
+                  while (copy[i].xp >= levelXp(copy[i].level)) {
+                    copy[i].xp -= levelXp(copy[i].level);
+                    copy[i].level += 1;
+                  }
+                }
+              }
+              return copy;
+            });
+          } catch (e) {
+            console.error('Error awarding battle XP', e);
+          }
+          spawnedAfterWin = true;
+        }
+        
+        if (b.player.hp <= 0) {
+          b.player.hp = 0;
+          b.log = [...b.log, 'Tu Pokémon se debilitó. Espera para que se recupere o cambia a otro.'];
+          b.player.ended = true;
+          b.ended = false;
+          try {
+            const faintedId = b.player.id;
+            if (faintedId) {
+              setRoster((prev) => {
+                const copy = prev.map((c) => ({ ...c }));
+                const idx2 = copy.findIndex((c) => c.id === faintedId);
+                if (idx2 !== -1) {
+                  copy[idx2].faintedUntil = Date.now() + REVIVE_MS;
+                }
+                return copy;
+              });
+            }
+          } catch (e) { }
+          try {
+            const nextAvailable = (roster || []).find((c) => c.id !== b.player.id && !(c.faintedUntil && c.faintedUntil > Date.now()));
+            if (nextAvailable) {
+              // Auto-select next available pokemon
+              const nextMaxHp = Math.max(8, nextAvailable.level * 8 + 10);
+              b.player = { id: nextAvailable.id, hp: nextMaxHp, maxHp: nextMaxHp };
+              b.log = [...b.log, `Enviaste a ${nextAvailable.name} a combatir.`];
+            } else {
+              b.ended = true;
+              b.log = [...b.log, 'No te quedan Pokémon disponibles. La batalla terminó.'];
+            }
+          } catch (e) { }
+        }
+        
+        const newW = { ...w, battle: b };
+        if (spawnedAfterWin) {
+          setTimeout(() => {
+            setWild(null);
+            setTimeout(() => forceSpawn(), 600);
+          }, 400);
+        }
+        return newW;
+      });
+    }, 2000); // Auto-attack every 2 seconds
+    
+    return () => clearInterval(interval);
+  }, [wild, roster]);
+
   return (
     <div className={`pokemonsPage ${zoneTheme ? `zone-${zoneTheme}` : ''}`}>
       <h2>Zonas</h2>
@@ -703,305 +962,341 @@ export default function PokemonsByZone() {
         {selectedZone ? (
           <div>
             <h3>{selectedZone.name}</h3>
-              {loadingZone ? (
+            {loadingZone ? (
               <p>Cargando pokemons de la zona...</p>
             ) : (
               <div style={{ display: 'flex', gap: 16 }}>
                 <div style={{ flex: 2 }}>
                   {/* Wild spawn area */}
                   {wild && (
-                    <div className='pokemonCard' style={{ border: '2px solid #444' }}>
-                      <img src={wild.image} alt={wild.name} />
-                      <h2>{wild.name} (Nivel {wild.wildLevel})</h2>
-                      <p>{wild.isBase ? 'Primera etapa' : 'Evolución posterior'}</p>
-                      {/* Battle system state */}
-                      {!(wild.battle && wild.battle.ended) && (
-                        <div style={{ marginTop: 8 }}>
-                          <small style={{ color: '#888' }}>Un Pokémon salvaje aparece — empieza la batalla si atacas.</small>
-                        </div>
-                      )}
-                        <div className='buttonCapturar' style={{ marginTop: 8 }}>
-                        <button onClick={() => attemptCaptureWild(wild)} disabled={!!captureCooldowns[wild.id]}>Capturar</button>
-                        <button style={{ marginLeft: 8 }} onClick={() => {
-                          // start battle if not started: initialize with no selected battler
-                          setWild((w) => {
-                            if (!w) return w;
-                            if (!w.battle) {
-                              const wildHp = Math.max(5, w.wildLevel * 8);
-                              return { ...w, battle: { player: { id: null, hp: 0, maxHp: 0 }, wild: { hp: wildHp, maxHp: wildHp }, log: [], ended: false } };
-                            }
-                            return w;
-                          });
-                        }}>Luchar</button>
-                      </div>
-                      {captureResult[wild.id] && <div style={{ marginTop: 6 }}>{captureResult[wild.id].msg}</div>}
-                      {/* Battle UI */}
-                      {wild.battle && (
-                        <div style={{ marginTop: 10, textAlign: 'left' }}>
-                          <div>
-                            <strong>Salvaje</strong>
-                            <div className='hpBar' style={{ marginTop: 6 }}>
-                              <div className='hpFill' style={{ width: `${Math.round((wild.battle.wild.hp / wild.battle.wild.maxHp) * 100)}%` }} />
-                            </div>
-                            <div className='hpLabel'>{wild.battle.wild.hp}/{wild.battle.wild.maxHp}</div>
+                    <div style={{ background: '#fff', border: '3px solid #333', borderRadius: 8, padding: 16, marginBottom: 16 }}>
+                      {!wild.battle ? (
+                        <>
+                          <div style={{ textAlign: 'center', marginBottom: 12 }}>
+                            <img src={wild.image} alt={wild.name} style={{ width: 120, height: 120 }} />
+                            <h2 style={{ margin: '8px 0 0 0', fontSize: 20 }}>{wild.name}</h2>
+                            <p style={{ margin: '4px 0', fontSize: 14, color: '#666' }}>Nivel {wild.wildLevel}</p>
                           </div>
-                          <div style={{ marginTop: 8 }}>
-                            <strong>Tú</strong>
-                            <div className='hpBar' style={{ marginTop: 6 }}>
-                              <div className='hpFill' style={{ width: `${Math.round((wild.battle.player.hp / wild.battle.player.maxHp) * 100)}%` }} />
-                            </div>
-                            <div className='hpLabel'>{wild.battle.player.hp}/{wild.battle.player.maxHp}</div>
+                          <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+                            <button onClick={() => attemptCaptureWild(wild)} disabled={!!captureCooldowns[wild.id]} style={{ padding: '10px 20px', fontSize: 14, background: '#ff6b6b', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer' }}>Capturar</button>
+                            <button onClick={() => {
+                              setWild((w) => {
+                                if (!w) return w;
+                                if (!w.battle) {
+                                  const wildHp = Math.max(5, w.wildLevel * 8);
+                                  const firstPokemon = roster.filter((r) => r.inTeam).length > 0 ? roster.find((r) => r.inTeam) : roster[0];
+                                  const playerId = firstPokemon ? firstPokemon.id : null;
+                                  const playerMaxHp = firstPokemon ? Math.max(8, firstPokemon.level * 8 + 10) : 0;
+                                  return { ...w, battle: { player: { id: playerId, hp: playerMaxHp, maxHp: playerMaxHp }, wild: { hp: wildHp, maxHp: wildHp }, log: playerId ? [`¡Comienza la batalla!`, `Enviaste a ${firstPokemon.name}!`] : [], ended: false } };
+                                }
+                                return w;
+                              });
+                            }} style={{ padding: '10px 20px', fontSize: 14, background: '#4caf50', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer' }}>Luchar</button>
                           </div>
-                          <div style={{ marginTop: 8 }}>
-                            {/* Selector para elegir el Pokémon que luchará */}
-                            <div style={{ marginBottom: 8 }}>
-                              <label style={{ fontSize: 13, marginRight: 8 }}>Pokémon para luchar:</label>
-                              <select
-                                value={(wild.battle && wild.battle.player && wild.battle.player.id) || ''}
-                                onChange={async (e) => {
-                                  const sel = e.target.value || null;
-                                  setWild((w) => {
-                                    if (!w || !w.battle) return w;
-                                    const b = { ...w.battle };
-                                    if (!sel) {
-                                      b.player = { id: null, hp: 0, maxHp: 0 };
-                                    } else {
-                                      const inst = roster.find((r) => r.id === sel);
-                                      // if the selected pokemon is fainted and still in revive cooldown, do not allow selection
-                                      if (inst && inst.faintedUntil && inst.faintedUntil > Date.now()) {
-                                        return w; // ignore selection of fainted
-                                      }
-                                      const maxHp = inst ? Math.max(8, inst.level * 8 + 10) : 10;
-                                      b.player = { id: sel, hp: maxHp, maxHp };
-                                      b.log = [...(b.log || []), `Seleccionaste a ${inst ? inst.name : 'tu Pokémon'} para luchar.`];
-                                    }
-                                    return { ...w, battle: b };
-                                  });
-                                  // if selected instance lacks types, fetch and attach
-                                  if (sel) {
-                                    const inst = roster.find((r) => r.id === sel);
-                                    if (inst && (!inst.types || inst.types.length === 0)) {
-                                      try {
-                                        const types = await getPokemonTypes(inst.originalId || inst.currentId || inst.currentId);
-                                        setRoster((prev) => {
-                                          const copy = [...(prev || [])];
-                                          const idx = copy.findIndex((c) => c.id === sel);
-                                          if (idx !== -1) copy[idx] = { ...copy[idx], types };
-                                          return copy;
-                                        });
-                                      } catch (e) {}
-                                    }
-                                  }
-                                }}
-                              >
-                                <option value=''>-- Ninguno --</option>
-                                {roster.map((r) => {
-                                  const disabled = r.faintedUntil && r.faintedUntil > Date.now();
-                                  return (
-                                    <option key={r.id} value={r.id} disabled={disabled}>{`${r.name} (Lv ${r.level})${disabled ? ' — Debilitado' : ''}`}</option>
-                                  );
-                                })}
-                              </select>
+                          {captureResult[wild.id] && <div style={{ marginTop: 12, textAlign: 'center', fontSize: 14, fontWeight: 600, color: captureResult[wild.id].ok ? '#4caf50' : '#ff6b6b' }}>{captureResult[wild.id].msg}</div>}
+                        </>
+                      ) : (
+                        <>
+                          {/* Pokemon Battle Interface */}
+                          <div style={{ background: 'linear-gradient(180deg, #87ceeb 0%, #e0f6ff 100%)', padding: 16, borderRadius: 4, marginBottom: 16 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                                {/* Enemy Pokemon - HP bar on top-left, image below */}
+                                <div style={{ flex: 1, textAlign: 'left' }}>
+                                  <div style={{ marginBottom: 8 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                      <strong style={{ fontSize: 14 }}>{wild.name}</strong>
+                                      <span style={{ fontSize: 12, color: '#666' }}>Nv. {wild.wildLevel}</span>
+                                    </div>
+                                    <div className='hpBar' style={{ marginTop: 6, height: 12, maxWidth: 180 }}>
+                                      <div className='hpFill' style={{ width: `${Math.round((wild.battle.wild.hp / wild.battle.wild.maxHp) * 100)}%` }} />
+                                    </div>
+                                  </div>
+                                  <div style={{ textAlign: 'center' }}>
+                                    <img src={wild.image} alt={wild.name} style={{ width: 100, height: 100 }} />
+                                  </div>
+                                </div>
+
+                                {/* Player Pokemon - image above, HP bar on bottom-right */}
+                                <div style={{ flex: 1, textAlign: 'right', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                                  <div style={{ textAlign: 'center' }}>
+                                    {(() => {
+                                      const inst = roster.find((r) => r.id === wild.battle.player.id);
+                                      return inst ? (
+                                        <img src={inst.image} alt={inst.name} style={{ width: 100, height: 100 }} />
+                                      ) : null;
+                                    })()}
+                                  </div>
+                                  <div style={{ marginTop: 8 }}>
+                                    {(() => {
+                                      const inst = roster.find((r) => r.id === wild.battle.player.id);
+                                      return inst ? (
+                                        <div style={{ textAlign: 'right' }}>
+                                          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, alignItems: 'center' }}>
+                                            <div>
+                                              <strong style={{ fontSize: 14 }}>{inst.name}</strong>
+                                              <span style={{ marginLeft: 8, fontSize: 12, color: '#666' }}>Nv. {inst.level}</span>
+                                            </div>
+                                          </div>
+                                          <div className='hpBar' style={{ marginTop: 6, height: 12, maxWidth: 180, marginLeft: 'auto' }}>
+                                            <div className='hpFill' style={{ width: `${Math.round((wild.battle.player.hp / wild.battle.player.maxHp) * 100)}%` }} />
+                                          </div>
+                                          <div style={{ fontSize: 12, color: '#333', marginTop: 4, textAlign: 'right' }}>HP: {wild.battle.player.hp}/{wild.battle.player.maxHp}</div>
+                                        </div>
+                                      ) : null;
+                                    })()}
+                                  </div>
+                                </div>
                             </div>
 
-                            <button onClick={() => {
-                              // perform one round: wild attacks, then player attacks (if alive)
-                              setWild((w) => {
-                                if (!w || !w.battle || w.battle.ended) return w;
-                                const b = { ...w.battle };
-                                const rnd = (n) => Math.floor(Math.random() * n) + 1;
-                                // determine speeds and order using stats when available
-                                const wildStats = (w && w.stats) || { hp: Math.max(8, (w && w.wildLevel) * 8 + 10), attack: 6, defense: 6, speed: 5 };
-                                const playerEntry = roster.find((r) => r.id === b.player.id) || {};
-                                const playerStats = playerEntry.stats || { hp: b.player.maxHp || 10, attack: Math.max(5, (playerEntry.level || 1) * 2), defense: 6, speed: 5 };
-                                const wildTypes = (w && w.types) || [];
-                                const playerTypes = playerEntry.types || [];
-                                // decide who attacks first by speed
-                                const wildSpeed = wildStats.speed || 1;
-                                const playerSpeed = playerStats.speed || 1;
-                                const playerFirst = playerSpeed >= wildSpeed;
-                                function doWildAttack() {
-                                  const dmg = Math.max(1, Math.floor(((wildStats.attack || 6) / (playerStats.defense || 6)) * (8 + (w.wildLevel || 1)) * typeMultiplier(wildTypes, playerTypes)));
-                                  b.player.hp = Math.max(0, b.player.hp - dmg);
-                                  b.log = [...b.log, `Salvaje causó ${dmg} de daño.`];
-                                }
-                                function doPlayerAttack() {
-                                  const dmg = Math.max(1, Math.floor(((playerStats.attack || 6) / (wildStats.defense || 6)) * (8 + (playerEntry.level || 1)) * typeMultiplier(playerTypes, wildTypes)));
-                                  b.wild.hp = Math.max(0, b.wild.hp - dmg);
-                                  b.log = [...b.log, `Tu Pokémon causó ${dmg} de daño.`];
-                                }
-                                if (playerFirst) {
-                                  if (b.player.hp > 0 && b.player.id) doPlayerAttack();
-                                  if (b.wild.hp > 0) doWildAttack();
-                                } else {
-                                  doWildAttack();
-                                  if (b.player.hp > 0 && b.player.id) doPlayerAttack();
-                                }
-                                // check end
-                                let spawnedAfterWin = false;
-                                  if (b.wild.hp <= 0) {
-                                    b.ended = true;
-                                    b.log = [...b.log, '¡Has debilitado al salvaje! Puedes intentar capturarlo con mayor probabilidad.'];
-                                  // award battle XP: majority to the battling pokemon, small share to others
-                                  try {
-                                    const xpTotal = Math.max(10, w.wildLevel * 15);
-                                    const activeId = b.player.id;
-                                    const activeXP = Math.ceil(xpTotal * 0.7);
-                                    const othersXP = xpTotal - activeXP;
-                                    setRoster((prev) => {
-                                      if (!prev || prev.length === 0) return prev;
-                                      const copy = prev.map((c) => ({ ...c }));
-                                      const othersCount = copy.length > 1 ? copy.length - 1 : 0;
-                                      for (let i = 0; i < copy.length; i++) {
-                                        if (copy[i].id === activeId) {
-                                          copy[i].xp = (copy[i].xp || 0) + activeXP;
-                                          while (copy[i].xp >= levelXp(copy[i].level)) {
-                                            copy[i].xp -= levelXp(copy[i].level);
-                                            copy[i].level += 1;
-                                          }
-                                        } else if (othersCount > 0) {
-                                          const share = Math.floor(othersXP / othersCount);
-                                          copy[i].xp = (copy[i].xp || 0) + share;
-                                          while (copy[i].xp >= levelXp(copy[i].level)) {
-                                            copy[i].xp -= levelXp(copy[i].level);
-                                            copy[i].level += 1;
-                                          }
+
+                          </div>
+
+                          {/* Battle Log */}
+                          <div style={{ background: '#f5f5f5', border: '2px solid #333', borderRadius: 4, padding: 12, marginBottom: 16, minHeight: 80, maxHeight: 120, overflowY: 'auto', fontSize: 13 }}>
+                            {wild.battle.log.length === 0 ? (
+                              <div style={{ color: '#999' }}>Esperando acciones...</div>
+                            ) : (
+                              wild.battle.log.slice(-6).map((l, i) => (
+                                <div key={i} style={{ marginBottom: 4, color: '#333' }}>
+                                  {l}
+                                </div>
+                              ))
+                            )}
+                          </div>
+
+                          {/* Actions */}
+                          {!wild.battle.ended ? (
+                            <div>
+                              <div style={{ marginBottom: 12 }}>
+                                <label style={{ display: 'block', marginBottom: 6, fontSize: 12, fontWeight: 600 }}>Cambiar Pokémon:</label>
+                                <select
+                                  value={(wild.battle && wild.battle.player && wild.battle.player.id) || ''}
+                                  onChange={async (e) => {
+                                    const sel = e.target.value || null;
+                                    setWild((w) => {
+                                      if (!w || !w.battle) return w;
+                                      const b = { ...w.battle };
+                                      if (!sel) {
+                                        b.player = { id: null, hp: 0, maxHp: 0 };
+                                      } else {
+                                        const inst = roster.find((r) => r.id === sel);
+                                        if (inst && inst.faintedUntil && inst.faintedUntil > Date.now()) {
+                                          return w;
                                         }
+                                        const maxHp = inst ? Math.max(8, inst.level * 8 + 10) : 10;
+                                        b.player = { id: sel, hp: maxHp, maxHp };
+                                        b.log = [...(b.log || []), `¡Enviaste a ${inst ? inst.name : 'tu Pokémon'}!`];
                                       }
-                                      return copy;
+                                      return { ...w, battle: b };
                                     });
-                                  } catch (e) {
-                                    console.error('Error awarding battle XP', e);
-                                  }
-                                  spawnedAfterWin = true;
-                                }
-                                if (b.player.hp <= 0) {
-                                  // mark player pokemon as fainted until now + REVIVE_MS
-                                  b.player.hp = 0;
-                                  b.log = [...b.log, 'Tu Pokémon se debilitó. Espera para que se recupere o cambia a otro.'];
-                                  b.player.ended = true;
-                                  b.ended = false; // keep battle alive if possible
-                                  // mark roster entry with faintedUntil timestamp
-                                  try {
-                                    const faintedId = b.player.id;
-                                    if (faintedId) {
-                                      setRoster((prev) => {
-                                        const copy = prev.map((c) => ({ ...c }));
-                                        const idx2 = copy.findIndex((c) => c.id === faintedId);
-                                        if (idx2 !== -1) {
-                                          copy[idx2].faintedUntil = Date.now() + REVIVE_MS;
-                                        }
-                                        return copy;
-                                      });
-                                    }
-                                  } catch (e) {}
-                                    // check if there is any other available pokemon to continue
-                                    try {
-                                      const othersAvailable = (roster || []).some((c) => c.id !== b.player.id && !(c.faintedUntil && c.faintedUntil > Date.now()));
-                                      if (!othersAvailable) {
-                                        // no available pokemon -> end battle
-                                        b.ended = true;
-                                        b.log = [...b.log, 'No te quedan Pokémon disponibles. La batalla terminó.'];
+                                    if (sel) {
+                                      const inst = roster.find((r) => r.id === sel);
+                                      if (inst && (!inst.types || inst.types.length === 0)) {
+                                        try {
+                                          const types = await getPokemonTypes(inst.originalId || inst.currentId || inst.currentId);
+                                          setRoster((prev) => {
+                                            const copy = [...(prev || [])];
+                                            const idx = copy.findIndex((c) => c.id === sel);
+                                            if (idx !== -1) copy[idx] = { ...copy[idx], types };
+                                            return copy;
+                                          });
+                                        } catch (e) { }
                                       }
-                                    } catch (e) {}
+                                    }
+                                  }}
+                                  style={{ width: '100%', padding: '6px', fontSize: 12 }}
+                                >
+                                  <option value=''>-- Ninguno --</option>
+                                  {roster.filter((r) => r.inTeam).map((r) => {
+                                    const disabled = r.faintedUntil && r.faintedUntil > Date.now();
+                                    return (
+                                      <option key={r.id} value={r.id} disabled={disabled}>{`${r.name} (Lv ${r.level})${disabled ? ' — Debilitado' : ''}`}</option>
+                                    );
+                                  })}
+                                </select>
+                              </div>
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                                <button onClick={() => {
+                                  if (wild.battle && wild.battle.ended && wild.battle.wild.hp <= 0) {
+                                    attemptCaptureWild(wild);
+                                    setTimeout(() => setWild(null), 800);
+                                  } else {
+                                    attemptCaptureWild(wild);
                                   }
-                                const newW = { ...w, battle: b };
-                                // schedule spawn of next wild if we won
-                                if (spawnedAfterWin) {
-                                  setTimeout(() => {
-                                    // clear current wild first
-                                    setWild(null);
-                                    // small delay then spawn next
-                                    setTimeout(() => forceSpawn(), 600);
-                                  }, 400);
-                                }
-                                return newW;
-                              });
-                            }}>Atacar</button>
-                            <button style={{ marginLeft: 8 }} onClick={() => {
-                              // if battle ended and wild fainted, allow capture; otherwise attempt capture in-battle
-                              if (wild.battle && wild.battle.ended && wild.battle.wild.hp <= 0) {
-                                attemptCaptureWild(wild);
-                                // after attempt, clear wild if captured
-                                setTimeout(() => setWild(null), 800);
-                              } else {
-                                attemptCaptureWild(wild);
-                              }
-                            }} disabled={!!captureCooldowns[wild.id]}>Intentar Capturar</button>
-                          </div>
-                          <div style={{ marginTop: 8 }}>
-                            {wild.battle.log.slice(-5).map((l, i) => <div key={i} style={{ fontSize: 12 }}>{l}</div>)}
-                          </div>
-                        </div>
+                                }} disabled={!!captureCooldowns[wild.id]} style={{ padding: '10px', fontSize: 13, background: '#ff6b6b', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}>
+                                  Capturar
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div style={{ textAlign: 'center', padding: 12, background: wild.battle.wild.hp <= 0 ? '#c8e6c9' : '#ffcccc', borderRadius: 4, fontSize: 14, fontWeight: 600, color: wild.battle.wild.hp <= 0 ? '#2e7d32' : '#c62828' }}>
+                              {wild.battle.wild.hp <= 0 ? '¡Victoria! Puedes capturar el Pokémon.' : 'Batalla terminada. No tienes Pokémon disponibles.'}
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
                   )}
 
                   <h4 style={{ marginTop: 12 }}>Especies en la zona</h4>
-                  <div className='pokemonList'>
-                    {zonePokemons
-                      .filter((pokemon) => {
-                        const zoneIndex = selectedZone.id - 1;
-                        if (zoneIndex < EARLY_ZONES) return pokemon.isBase;
-                        return true;
-                      })
-                      .map((pokemon) => {
-                        const count = roster.filter((r) => r.originalId === pokemon.id).length;
-                        return (
-                          <div className='pokemonCard' key={pokemon.id}>
-                            <img src={pokemon.image} alt={pokemon.name} />
-                            <h2>{pokemon.name}</h2>
-                            <p>{pokemon.isBase ? 'Primera etapa' : 'Evolución posterior'}</p>
-                            <p>En tu equipo: {count}</p>
-                            
-                          </div>
-                        );
-                      })}
+                  <div style={{ height: 400, overflowY: 'auto', border: '2px solid #ddd', borderRadius: 8, padding: 8, background: 'rgba(255,255,255,0.95)' }}>
+                    <div className='pokemonList'>
+                      {zonePokemons
+                        .filter((pokemon) => {
+                          const zoneIndex = selectedZone.id - 1;
+                          if (zoneIndex < EARLY_ZONES) return pokemon.isBase;
+                          return true;
+                        })
+                        .map((pokemon) => {
+                          const count = roster.filter((r) => r.originalId === pokemon.id).length;
+                          return (
+                            <div className='pokemonCard' key={pokemon.id}>
+                              <img src={pokemon.image} alt={pokemon.name} />
+                              <h2>{pokemon.name}</h2>
+                              <p>{pokemon.isBase ? 'Primera etapa' : 'Evolución posterior'}</p>
+                              <p>En tu equipo: {count}</p>
+                            </div>
+                          );
+                        })}
+                    </div>
                   </div>
                 </div>
 
                 <div style={{ flex: 1, minWidth: 220 }}>
-                  <h4>Tu Roster</h4>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-                    <label style={{ fontSize: 12 }}>Ordenar por:</label>
-                    <select value={sortKey} onChange={(e) => setSortKey(e.target.value)}>
-                      <option value='capturedAt'>Reciente</option>
-                      <option value='level'>Nivel</option>
-                      <option value='name'>Nombre</option>
-                      <option value='pokedex'>N.º Pokédex</option>
-                    </select>
-                    <button onClick={() => setSortOrder((s) => (s === 'desc' ? 'asc' : 'desc'))} style={{ marginLeft: 8 }}>
-                      {sortOrder === 'desc' ? 'Desc' : 'Asc'}
-                    </button>
-                  </div>
-                  {roster.length === 0 ? (
-                    <p>No tienes Pokémon capturados aún.</p>
-                  ) : (
-                    <div>
-                      {sortedRoster.map((r) => (
-                        <div key={r.id} className='pokemonCard' style={{ marginBottom: 8, padding: 6 }}>
-                          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                            <img src={r.image} alt={r.name} style={{ width: 56, height: 56 }} />
-                            <div style={{ flex: 1, textAlign: 'left' }}>
-                              <div style={{ fontWeight: 600 }}>{r.name}</div>
-                              <div style={{ fontSize: 12, color: '#444' }}>
-                                Nivel: {r.level} • XP: {r.xp}/{levelXp(r.level)}
-                                {r.faintedUntil && r.faintedUntil > now ? (
-                                  <div style={{ fontSize: 11, color: '#a00' }}>Debilitado — revive en {Math.ceil((r.faintedUntil - now) / 1000)}s</div>
-                                ) : null}
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ display: 'flex', gap: 12, borderBottom: '2px solid #ddd' }}>
+                      <h4 style={{ margin: 0, paddingBottom: 12, borderBottom: '3px solid #667eea', color: '#667eea' }}>
+                        Equipo {`(${roster.filter((r) => r.inTeam).length}/6)`}
+                      </h4>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12, marginBottom: 8 }}>
+                      <label style={{ fontSize: 12 }}>Orden general (no afecta equipo):</label>
+                      <select value={sortKey} onChange={(e) => setSortKey(e.target.value)}>
+                        <option value='capturedAt'>Reciente</option>
+                        <option value='level'>Nivel</option>
+                        <option value='name'>Nombre</option>
+                        <option value='pokedex'>N.º Pokédex</option>
+                      </select>
+                      <button onClick={() => setSortOrder((s) => (s === 'desc' ? 'asc' : 'desc'))} style={{ marginLeft: 8 }}>
+                        {sortOrder === 'desc' ? 'Desc' : 'Asc'}
+                      </button>
+                    </div>
+                    {roster.filter((r) => r.inTeam).length === 0 ? (
+                      <p style={{ fontSize: 12, color: '#999' }}>No tienes Pokémon en el equipo.</p>
+                    ) : (
+                      <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+                        {roster.filter((r) => r.inTeam).map((r) => (
+                          <div
+                            key={r.id}
+                            className='pokemonCard'
+                            draggable
+                            onDragStart={(e) => handleTeamDragStart(e, r.id)}
+                            onDragOver={handleTeamDragOver}
+                            onDrop={(e) => handleTeamDrop(e, r.id)}
+                            onDragEnd={handleTeamDragEnd}
+                            style={{
+                              marginBottom: 8,
+                              padding: 6,
+                              cursor: wild && wild.battle && !wild.battle.ended ? 'pointer' : 'grab',
+                              border: dragSourceId === r.id ? '2px dashed #2196f3' : '2px solid #667eea',
+                              opacity: dragSourceId && dragSourceId === r.id ? 0.8 : 1,
+                              background: '#fff'
+                            }}
+                            onClick={() => {
+                              if (wild && wild.battle && !wild.battle.ended && !(r.faintedUntil && r.faintedUntil > Date.now())) {
+                                setWild((w) => {
+                                  if (!w || !w.battle) return w;
+                                  const b = { ...w.battle };
+                                  const maxHp = r ? Math.max(8, r.level * 8 + 10) : 10;
+                                  b.player = { id: r.id, hp: maxHp, maxHp };
+                                  b.log = [...(b.log || []), `Seleccionaste a ${r.name} para luchar.`];
+                                  return { ...w, battle: b };
+                                });
+                              }
+                            }}
+                          >
+                            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                              <img src={r.image} alt={r.name} style={{ width: 56, height: 56 }} />
+                              <div style={{ flex: 1, textAlign: 'left' }}>
+                                <div style={{ fontWeight: 600 }}>{r.name}</div>
+                                <div style={{ fontSize: 12, color: '#444' }}>
+                                  Nivel: {r.level} • XP: {r.xp}/{levelXp(r.level)}
+                                  {r.faintedUntil && r.faintedUntil > now ? (
+                                    <div style={{ fontSize: 11, color: '#a00' }}>Debilitado — revive en {Math.ceil((r.faintedUntil - now) / 1000)}s</div>
+                                  ) : null}
+                                </div>
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                <button onClick={(e) => { e.stopPropagation(); removeCaptured(r.id); }} style={{ fontSize: 12, padding: '4px 8px' }}>Liberar</button>
+                                <button onClick={(e) => { e.stopPropagation(); toggleTeam(r.id); }} style={{ fontSize: 12, padding: '4px 8px', background: '#ff9800', color: 'white', border: 'none' }}>Sacar</button>
+                                <button onClick={(e) => { e.stopPropagation(); handleEvolveInstance(r.id); }} disabled={r.level < EVOLVE_LEVEL} style={{ fontSize: 12, padding: '4px 8px' }}>
+                                  Evolucionar
+                                </button>
                               </div>
                             </div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                              <button onClick={() => removeCaptured(r.id)} style={{ fontSize: 12, padding: '4px 8px' }}>Liberar</button>
-                              <button onClick={() => handleEvolveInstance(r.id)} disabled={r.level < EVOLVE_LEVEL} style={{ fontSize: 12, padding: '4px 8px' }}>
-                                Evolucionar
-                              </button>
-                            </div>
                           </div>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <div style={{ display: 'flex', gap: 12, borderBottom: '2px solid #ddd' }}>
+                      <h4 style={{ margin: 0, paddingBottom: 12, borderBottom: '3px solid #999', color: '#999' }}>
+                        Inventario {`(${roster.filter((r) => !r.inTeam).length})`}
+                      </h4>
                     </div>
-                  )}
+                    {roster.filter((r) => !r.inTeam).length === 0 ? (
+                      <p style={{ fontSize: 12, color: '#999', marginTop: 12 }}>No tienes Pokémon en el inventario.</p>
+                    ) : (
+                      <>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12 }}>
+                          <input placeholder='Filtrar por nombre...' value={invFilterText} onChange={(e) => setInvFilterText(e.target.value)} style={{ flex: 1, padding: '6px', fontSize: 13 }} />
+                          <select value={invFilterType} onChange={(e) => setInvFilterType(e.target.value)} style={{ padding: '6px', fontSize: 13 }}>
+                            <option value=''>Todos los tipos</option>
+                            {inventoryTypes.map((t) => (<option key={t} value={t}>{t}</option>))}
+                          </select>
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
+                          <label style={{ fontSize: 12 }}>Ordenar por:</label>
+                          <select value={invSortKey} onChange={(e) => setInvSortKey(e.target.value)}>
+                            <option value='capturedAt'>Reciente</option>
+                            <option value='level'>Nivel</option>
+                            <option value='name'>Nombre</option>
+                            <option value='pokedex'>N.º Pokédex</option>
+                          </select>
+                          <button onClick={() => setInvSortOrder((s) => (s === 'desc' ? 'asc' : 'desc'))} style={{ marginLeft: 8 }}>
+                            {invSortOrder === 'desc' ? 'Desc' : 'Asc'}
+                          </button>
+                        </div>
+                        <div style={{ maxHeight: 300, overflowY: 'auto', marginTop: 12 }}>
+                          {sortedInventory.map((r) => (
+                            <div key={r.id} className='pokemonCard' style={{ marginBottom: 8, padding: 6 }}>
+                              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                <img src={r.image} alt={r.name} style={{ width: 56, height: 56 }} />
+                                <div style={{ flex: 1, textAlign: 'left' }}>
+                                  <div style={{ fontWeight: 600 }}>{r.name}</div>
+                                  <div style={{ fontSize: 12, color: '#444' }}>
+                                    Nivel: {r.level}
+                                    {r.faintedUntil && r.faintedUntil > now ? (
+                                      <div style={{ fontSize: 11, color: '#a00' }}>Debilitado — revive en {Math.ceil((r.faintedUntil - now) / 1000)}s</div>
+                                    ) : null}
+                                  </div>
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                  <button onClick={() => { removeCaptured(r.id); }} style={{ fontSize: 12, padding: '4px 8px' }}>Liberar</button>
+                                  <button onClick={() => { toggleTeam(r.id); }} style={{ fontSize: 12, padding: '4px 8px', background: '#4caf50', color: 'white', border: 'none' }}>Añadir</button>
+                                  <button onClick={() => { handleEvolveInstance(r.id); }} disabled={r.level < EVOLVE_LEVEL} style={{ fontSize: 12, padding: '4px 8px' }}>
+                                    Evolucionar
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
             )}

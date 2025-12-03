@@ -50,7 +50,8 @@
 .pokemonsPage {
   transition: background 420ms ease, background-image 420ms ease;
   padding-bottom: 40px;
-  background: transparent; /* let body background show through */
+  background: linear-gradient(180deg, #ffffff 0%, #fafafa 100%);
+  background-attachment: fixed;
   min-height: 100vh;
 }
 .pokemonsPage.zone-forest {
